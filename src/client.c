@@ -13,7 +13,7 @@ int main(){
 
     char usrInput[100];
     mkfifo(mainFIFO,0666);
-    size_t tamanhoUsrInput = read(0,usrInput,100);
+    read(0,usrInput,100);
 
 
     //deteção de erros

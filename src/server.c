@@ -10,6 +10,23 @@
 #define mainFIFO "../FIFOs/mainFIFO"
 #define LineLength 1024
 
+//Função para ler uma linha de um ficheiro
+ssize_t readln(int fd, char* line, size_t size) {
+    ssize_t bytes_read = read(fd, line, size);
+    if(!bytes_read) return 0;
+
+    size_t line_length = strcspn(line, "\n") + 1;
+
+    if(bytes_read < line_length) line_length = bytes_read;
+
+    //colocar o '\0' no final da string para ser "válida"
+    line[line_length] = 0;
+    
+    lseek(fd, line_length - bytes_read, SEEK_CUR);
+    return line_length;
+}
+
+
 typedef struct Config{
 
     int nop;
@@ -21,7 +38,6 @@ typedef struct Config{
     int decrypt;
 
 }*Conf;
-
 
 //Os valores das configs são inicializados a zero caso não constem no ficheiro de config
 void initConf(Conf c){
@@ -106,23 +122,6 @@ void readConf(Conf c,const char *path){
 
     }
 
-}
-
-
-//Função para ler uma linha de um ficheiro
-ssize_t readln(int fd, char* line, size_t size) {
-    ssize_t bytes_read = read(fd, line, size);
-    if(!bytes_read) return 0;
-
-    size_t line_length = strcspn(line, "\n") + 1;
-
-    if(bytes_read < line_length) line_length = bytes_read;
-
-    //colocar o '\0' no final da string para ser "válida"
-    line[line_length] = 0;
-    
-    lseek(fd, line_length - bytes_read, SEEK_CUR);
-    return line_length;
 }
 
 
