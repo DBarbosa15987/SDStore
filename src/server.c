@@ -151,25 +151,28 @@ int main(int argc,char *argv[]){
     //Esta é a mainFIFO, que apenas recebe os pedidos de conexão
     mkfifo(mainFIFO,0666);
 
-    int mainFIFOfd;
     char pedido[100];
     char fifoRead[64];
     char fifoWrite[64];
     ssize_t tamanhoPedido;
+    
 
     while(1){
 
         //Abrir main pipe para receber pedidos de conexão
-        mainFIFOfd = open(mainFIFO,O_RDONLY);
+        int mainFIFOfd = open(mainFIFO,O_RDONLY);
         
         /*Quando uma conexão chega, o servidor lê o pedido e processa-o;
         O pedido será do tipo "pid pedido arg arg...";*/
         tamanhoPedido = read(mainFIFOfd,pedido,sizeof(pedido));
-        //Aqui assume-se que o cliente introduzio um comando válido ou que o client side o tenha autenticado
-        printf("Pedido: %s|\n",pedido);
-        fflush(NULL);
+        //Aqui assume-se que o cliente introduziu um comando válido ou que o client side o tenha autenticado
+
+        close(mainFIFOfd);
 
         if(tamanhoPedido>0){
+        
+            printf("Pedido: %s|\n",pedido);
+            fflush(NULL);
             
             if(fork()==0){
 
@@ -201,19 +204,17 @@ int main(int argc,char *argv[]){
 
 
                 exit(0);
-            }
-
-            sleep(1);
-            wait(NULL);
+            }            
+            
+            //acho que é impossível o filho chrgar aqui antes do pai right?
+            //secalhar uso waitpid??
+            //sleep(1);
+            //wait(NULL);
         }
 
-
-        close(mainFIFOfd);
-        
     }
 
-
-
+    
 
 }
 

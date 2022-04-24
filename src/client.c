@@ -91,7 +91,7 @@ int main(int argc,char *argv[]){
 
 
     //Tenho que arranjar uma forma de saber se o server já criou os fifos
-    sleep(1);
+    //sleep(1);
     int fdR = open(fifoRead,O_RDONLY);
     //int fdW = open(fifoWrite,O_WRONLY);
 
