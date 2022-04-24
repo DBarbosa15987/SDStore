@@ -1,0 +1,6 @@
+SDStore-transf
+FIFOs
+client
+server
+*.o
+.vscode

@@ -1,3 +1,5 @@
+#Esta Makefile é apenas provisória, depois usamos a do prof
+
 all: clean fifo client server
 
 fifo:
