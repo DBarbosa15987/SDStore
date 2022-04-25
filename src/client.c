@@ -12,7 +12,7 @@
 #define client_server_fifo "../FIFOs/client_server_"
 #define messageSIZE 256
 
-void print(char *str){
+void println(char *str){
 
     char nl = 10;
     write(1,str,strlen(str));
@@ -42,7 +42,7 @@ int main(int argc,char *argv[]){
     //Confirmar os argumentos e enviar o pedido
     if(argc<2){
 
-        print("Argumentos insuficientes");
+        println("Argumentos insuficientes");
         return 1;
     }
     else{
@@ -51,7 +51,7 @@ int main(int argc,char *argv[]){
             
             if(argc != 2){
 
-                print("Argumentos inválidos");
+                println("Argumentos inválidos");
                 return 1;
             }
 
@@ -63,12 +63,12 @@ int main(int argc,char *argv[]){
 
             if(argc < 5){
 
-                print("Argumentos inválidos");
+                println("Argumentos inválidos");
                 return 1;
             }
         }
 
-        else print("Operação inválida");
+        else println("Operação inválida");
 
         if(write(mainFIFOfd,pedido,sizeof(pedido))<0){
 
@@ -91,19 +91,47 @@ int main(int argc,char *argv[]){
 
 
     //Tenho que arranjar uma forma de saber se o server já criou os fifos
-    //sleep(1);
-    int fdR = open(fifoRead,O_RDONLY);
-    //int fdW = open(fifoWrite,O_WRONLY);
+    sleep(1);
+    
+    
 
-    char resposta[messageSIZE];
+    
+
+    //É um pedido de status
     if(status){
 
-        if(read(fdR,resposta,messageSIZE)>0){
+        //int fdW = open(fifoWrite,O_WRONLY);
+        int fdR = open(fifoRead,O_RDONLY);
+        if(fdR==-1){
+            perror("Erro ao abrir o pipe");//error check
+            exit(-1);
+        }
 
-            print(resposta);
-            close(fdR);
+        char resposta[messageSIZE];
+        int respostaSize = read(fdR,resposta,sizeof(resposta));
+        close(fdR);
+
+        if(respostaSize>0){
+
+            println(resposta);
 
         }
+
+        else{
+
+            perror("Erro na Leitura: ");
+            exit(-1);
+
+        }
+
+    }
+
+    //É um pedido de proc-file
+    else{
+
+        
+
+
     }
 
 

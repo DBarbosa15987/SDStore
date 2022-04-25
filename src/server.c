@@ -8,10 +8,14 @@
 #include <string.h>
 
 #define mainFIFO "../FIFOs/mainFIFO"
+#define exe "../exe/"
 #define server_client_fifo "../FIFOs/server_client_"
 #define client_server_fifo "../FIFOs/client_server_"
 #define LineLength 1024
 #define PedidoMAX 16
+#define CommandSize 128
+
+//
 
 //Função para ler uma linha de um ficheiro
 ssize_t readln(int fd, char* line, size_t size) {
@@ -165,10 +169,12 @@ int main(int argc,char *argv[]){
         /*Quando uma conexão chega, o servidor lê o pedido e processa-o;
         O pedido será do tipo "pid pedido arg arg...";*/
         tamanhoPedido = read(mainFIFOfd,pedido,sizeof(pedido));
-        //Aqui assume-se que o cliente introduziu um comando válido ou que o client side o tenha autenticado
-
         close(mainFIFOfd);
+        
 
+
+        //Aqui assume-se que o cliente introduziu um comando válido,
+        //ou que o client side o tenha autenticado!
         if(tamanhoPedido>0){
         
             printf("Pedido: %s|\n",pedido);
@@ -177,7 +183,7 @@ int main(int argc,char *argv[]){
             if(fork()==0){
 
                 char *pedidoArr[PedidoMAX];
-                strToStrArr(pedido,pedidoArr," ");
+                int pedidoSize = strToStrArr(pedido,pedidoArr," ");
                 int pid = atoi(pedidoArr[0]);
                 
                 memset(fifoRead,0,sizeof(fifoRead));
@@ -188,32 +194,123 @@ int main(int argc,char *argv[]){
                 //abrir os FIFOs privados do client
                 mkfifo(fifoRead,0666);
                 mkfifo(fifoWrite,0666);
-                
-                //int fdR = open(fifoRead,O_RDONLY);
-                int fdW = open(fifoWrite,O_WRONLY);
+            
+                printf("%s|%d|\n",pedidoArr[1],strcmp(pedidoArr[1],"proc-file"));
+                fflush(NULL);
 
                 
+                // Exemplos de pedidos:
+                // 32132 status
+                // 32132 proc-file path_in path_out nop nop nop ...
+                // { 0       1        2        3     4   5   6  ...}
+
+
                 //falta defenir uma string, e não esquecer do memset e tal
                 if(strcmp(pedidoArr[1],"status")==0){
                     
+                    //aqui falta calcular a string de status
+                    //int fdR = open(fifoRead,O_RDONLY);
+                    int fdW = open(fifoWrite,O_WRONLY);
+                    if(fdW==-1){
+                        perror("Erro ao abrir o pipe");//error check
+                        exit(-1);
+                    }
                     char a[] = "bruhhhhhhh";
                     write(fdW,a,sizeof(a));
                     close(fdW);
 
                 }
 
+                else if(strcmp(pedidoArr[1],"proc-file")==0){//falta aqui validar o path
+                    
+                    int n_op = pedidoSize-4;
+                    printf("\n%d\n",n_op);
+                    fflush(NULL);
+
+                    // Apenas uma operação, por isso não é preciso pipes,
+                    // é feito diretamente do input-file para o output-file
+                    if(n_op==1){
+
+                        if(fork()==0){
+
+                        int fdInput = open(pedidoArr[2],O_RDONLY);
+                        int fdOutput = open(pedidoArr[3],O_WRONLY | O_CREAT,0666);
+
+                        dup2(fdInput,0);
+                        close(fdInput);
+                        dup2(fdOutput,1);
+                        close(fdOutput);
+                        char command[CommandSize];
+                        sprintf(command,"%s%s",exe,pedidoArr[4]);
+                        execlp(command,command,NULL);
+                        printf("\n%s\n",command);
+                        fflush(NULL);
+                        exit(-1);
+
+                        }
+
+
+                    }
+
+
+/*
+                    int fdInput = open(pedidoArr[2],O_RDONLY);
+                    int fdOutput = open(pedidoArr[3],O_WRONLY | O_CREAT,0666);
+                    
+                    // número de pipes necessários
+                    int n_pipes = pedidoSize - 4 - 1;
+                    int p[n_pipes][2];
+                    int pipeIndex;
+
+                    for(int i=4;i<pedidoSize;i++){
+                        
+                        pipeIndex = i-4;
+                        pipe(p[pipeIndex]);
+                        
+                        // O pipe anterior é fechado exceto na primeira iteração
+                        if(i != 4){
+
+                            close(p[pipeIndex-1][1]);
+
+                        }
+                        
+                        if(fork()==0){
+
+                            dup2(p[pipeIndex][0],fdInput);
+                            close(p[pipeIndex][0]);
+
+
+                        }
+
+                        //Fazer sequencial para não javardar
+                        wait(NULL);
+
+                    }
+*/                    
+
+
+                }
+
+                else{
+
+                    printf("bomdia\n");
+                    fflush(NULL);
+
+                }
 
                 exit(0);
             }            
-            
-            //acho que é impossível o filho chrgar aqui antes do pai right?
-            //secalhar uso waitpid??
-            //sleep(1);
-            //wait(NULL);
+
+        }
+
+        else{
+
+            perror("Erro na Leitura: ");
+            exit(-1);
+
         }
 
     }
-
     
 
 }
