@@ -170,7 +170,6 @@ int main(int argc,char *argv[]){
         O pedido será do tipo "pid pedido arg arg...";*/
         tamanhoPedido = read(mainFIFOfd,pedido,sizeof(pedido));
         close(mainFIFOfd);
-        
 
 
         //Aqui assume-se que o cliente introduziu um comando válido,
@@ -180,6 +179,7 @@ int main(int argc,char *argv[]){
             printf("Pedido: %s|\n",pedido);
             fflush(NULL);
             
+            //Cada fork aqui representa um cliente
             if(fork()==0){
 
                 char *pedidoArr[PedidoMAX];
@@ -191,14 +191,13 @@ int main(int argc,char *argv[]){
                 sprintf(fifoRead,"%s%d",client_server_fifo, pid);
                 sprintf(fifoWrite,"%s%d",server_client_fifo, pid);
                 
-                //abrir os FIFOs privados do client
+                //Abrir os FIFOs privados do client
                 mkfifo(fifoRead,0666);
                 mkfifo(fifoWrite,0666);
             
-                printf("%s|%d|\n",pedidoArr[1],strcmp(pedidoArr[1],"proc-file"));
-                fflush(NULL);
-
-                
+                //printf("%s|%d|\n",pedidoArr[1],strcmp(pedidoArr[1],"proc-file"));
+                //fflush(NULL);
+ 
                 // Exemplos de pedidos:
                 // 32132 status
                 // 32132 proc-file path_in path_out nop nop nop ...
@@ -209,7 +208,7 @@ int main(int argc,char *argv[]){
                 if(strcmp(pedidoArr[1],"status")==0){
                     
                     //aqui falta calcular a string de status
-                    //int fdR = open(fifoRead,O_RDONLY);
+                    //Aqui apenas é preciso um FIFO de write
                     int fdW = open(fifoWrite,O_WRONLY);
                     if(fdW==-1){
                         perror("Erro ao abrir o pipe");//error check
@@ -233,61 +232,141 @@ int main(int argc,char *argv[]){
 
                         if(fork()==0){
 
-                        int fdInput = open(pedidoArr[2],O_RDONLY);
-                        int fdOutput = open(pedidoArr[3],O_WRONLY | O_CREAT,0666);
+                            int fdInput = open(pedidoArr[2],O_RDONLY);
+                            int fdOutput = open(pedidoArr[3],O_WRONLY | O_CREAT,0666);
 
-                        dup2(fdInput,0);
-                        close(fdInput);
-                        dup2(fdOutput,1);
-                        close(fdOutput);
-                        char command[CommandSize];
-                        sprintf(command,"%s%s",exe,pedidoArr[4]);
-                        execlp(command,command,NULL);
-                        printf("\n%s\n",command);
-                        fflush(NULL);
-                        exit(-1);
+                            dup2(fdInput,0);
+                            close(fdInput);
+                            dup2(fdOutput,1);
+                            close(fdOutput);
+
+                            char command[CommandSize];
+                            sprintf(command,"%s%s",exe,pedidoArr[4]);
+                            execl(command,command,NULL);
+
+                            printf("\nFalhou: (%s)\n",command);
+                            fflush(NULL);
+                            // só será usado se o exec se vergar, não esquecer de ver isto!!
+                            exit(-1);
 
                         }
 
-
                     }
-
-
-/*
-                    int fdInput = open(pedidoArr[2],O_RDONLY);
-                    int fdOutput = open(pedidoArr[3],O_WRONLY | O_CREAT,0666);
                     
-                    // número de pipes necessários
-                    int n_pipes = pedidoSize - 4 - 1;
-                    int p[n_pipes][2];
-                    int pipeIndex;
+                    //Mais do que uma transformação aplicada a um ficheiro
+                    //Um ou mais pipes serão necessários
+                    else{
 
-                    for(int i=4;i<pedidoSize;i++){
-                        
-                        pipeIndex = i-4;
-                        pipe(p[pipeIndex]);
-                        
-                        // O pipe anterior é fechado exceto na primeira iteração
-                        if(i != 4){
+                        //Criação dos pipes necessários
+                        int n_pipes = n_op - 1;
+                        int p[n_pipes][2];
+                        int opIndex;
 
-                            close(p[pipeIndex-1][1]);
+                        //Este ciclo será executado sequencialmente
+                        for(int i=0;i<n_op;i++){
+
+                            opIndex = 4+i;
+                            //No último comando, não é necessário criar pipe
+                            if(i!=(n_op-1)){
+                                if(pipe(p[i])==-1){
+                                    perror("Erro ao abrir o pipe: ");
+                                    exit(-1);
+                                }
+                            }
+                            
+                            //Primeiro argumento, em que não lêmos de um pipe,
+                            //mas sim do pedido original e escrevemos num pipe
+                            if(i==0){
+
+                                if(fork()==0){
+                                    
+                                    close(p[i][0]);
+                                    int fdInput = open(pedidoArr[2],O_RDONLY);
+
+                                    dup2(fdInput,0);
+                                    close(fdInput);
+                                    dup2(p[i][1],1);
+                                    close(p[i][1]);
+
+                                    char command[CommandSize];
+                                    sprintf(command,"%s%s",exe,pedidoArr[opIndex]);
+                                    execl(command,command,NULL);
+
+                                    // só será usado se o exec se vergar, não esquecer de ver isto!!
+                                    exit(-1);
+                                }
+                                else{
+                                    
+                                    close(p[i][1]);
+                                    wait(NULL);
+
+                                }
+
+                            }
+                            //Último argumento, que o conteúdo é lido de um pipe
+                            //e escrito para o ficheiro de output recebido no pedido
+                            else if(i==(n_op-1)){
+
+                                if(fork()==0){
+
+                                    int fdOutput = open(pedidoArr[3],O_WRONLY | O_CREAT,0666);
+
+                                    dup2(fdOutput,1);
+                                    close(fdOutput);
+                                    dup2(p[i-1][0],0);
+                                    close(p[i-1][0]);
+
+                                    char command[CommandSize];
+                                    sprintf(command,"%s%s",exe,pedidoArr[opIndex]);
+                                    execl(command,command,NULL);
+
+                                    // só será usado se o exec se vergar, não esquecer de ver isto!!
+                                    exit(-1);
+
+                                }
+                                else{
+
+                                    close(p[i-1][0]);
+                                    wait(NULL);
+                                    printf("Acabei\n");
+                                    fflush(NULL);
+
+                                }
+
+                            }
+
+                            //Caso intermédio de escrita do conteúdo em pipes
+                            else{
+
+                                if(fork()==0){
+
+                                    close(p[i][0]);
+                                    dup2(p[i-1][0],0);
+                                    close(p[i-1][0]);
+                                    dup2(p[i][1],1);
+                                    close(p[i][1]);
+
+                                    char command[CommandSize];
+                                    sprintf(command,"%s%s",exe,pedidoArr[opIndex]);
+                                    execl(command,command,NULL);
+
+                                    // só será usado se o exec se vergar, não esquecer de ver isto!!
+                                    exit(-1);
+
+                                }
+                                else{
+
+                                    close(p[i-1][0]);
+                                    close(p[i][1]);
+                                    wait(NULL);
+
+                                }
+
+                            }
 
                         }
-                        
-                        if(fork()==0){
-
-                            dup2(p[pipeIndex][0],fdInput);
-                            close(p[pipeIndex][0]);
-
-
-                        }
-
-                        //Fazer sequencial para não javardar
-                        wait(NULL);
 
                     }
-*/                    
-
 
                 }
 
@@ -297,6 +376,10 @@ int main(int argc,char *argv[]){
                     fflush(NULL);
 
                 }
+
+
+                unlink(fifoRead);
+                unlink(fifoWrite);
 
                 exit(0);
             }            
@@ -310,7 +393,10 @@ int main(int argc,char *argv[]){
 
         }
 
+
     }
+
+    unlink(mainFIFO);
     
 
 }
@@ -318,6 +404,9 @@ int main(int argc,char *argv[]){
 
 
 /*
+
+./client proc-file ../b ../bruh bcompress encrypt decrypt bdecompress
+
 
 0000 is ---------
 0666 is rw-rw-rw-
