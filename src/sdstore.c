@@ -14,7 +14,8 @@
 #define LineLength 512
 #define PedidoMAX 32
 #define CommandSize 256
-#define statusSize 1024
+#define statusSize 2048
+
 
 typedef struct Nodo{
 
@@ -29,10 +30,10 @@ typedef struct Nodo{
 Lista Espera = NULL;
 Lista Execucao = NULL;
 
+
 void removeEspera(){
 
     if(!Espera) return;
-
     Espera = Espera->prox;
 
 }
@@ -118,7 +119,7 @@ ssize_t readln(int fd, char* line, size_t size) {
 }
 
 
-typedef struct Config{
+typedef struct Filtros{
 
     int nop;
     int bcompress;
@@ -128,7 +129,9 @@ typedef struct Config{
     int encrypt;
     int decrypt;
 
-}*Conf;
+}*Conf,*Ativos;
+
+Ativos a;
 
 void println(char *str){
 
@@ -139,15 +142,15 @@ void println(char *str){
 }
 
 //Os valores das configs são inicializados a zero caso não constem no ficheiro de config
-void initConf(Conf c){
+void initAtivos(Ativos a){
 
-    c->nop = 0;
-    c->bcompress = 0;
-    c->bdecompress = 0;
-    c->gcompress = 0;
-    c->gdecompress = 0;
-    c->encrypt = 0;
-    c->decrypt = 0;
+    a->nop = 0;
+    a->bcompress = 0;
+    a->bdecompress = 0;
+    a->gcompress = 0;
+    a->gdecompress = 0;
+    a->encrypt = 0;
+    a->decrypt = 0;
 
 }
 
@@ -226,23 +229,55 @@ void readConf(Conf c,const char *path){
 
 // Formatação da string status que será enviada ao cliente 
 // (aqui assume-se que a string tem espaço suficiente)
-void getStatus(char *status){
+void getStatus(char *status,Conf c){
 
     Lista auxEspera = Espera;
     Lista auxExecucao = Execucao;
+    char aux[64];
+
     // Processos Ativos
-    for(;auxEspera;auxEspera=auxEspera->prox){
-        println(auxEspera->pedido);
+    for(;auxExecucao;auxExecucao=auxExecucao->prox){
+        strcat(status,"task : ");
+        strcat(status,auxExecucao->pedido);
+        strcat(status,"\n");
     }
 
     // Config (running/max)
-    for(;auxExecucao;auxExecucao=auxExecucao->prox){
-        println(auxExecucao->pedido);
-    }
-
+    sprintf(aux,"transf nop: %d/%d (running/max)\n",a->nop,c->nop);
+    strcat(status,aux);
+    sprintf(aux,"transf bcompress: %d/%d (running/max)\n",a->bcompress,c->bcompress);
+    strcat(status,aux);
+    sprintf(aux,"transf bdecompress: %d/%d (running/max)\n",a->bdecompress,c->bdecompress);
+    strcat(status,aux);
+    sprintf(aux,"transf gcompress: %d/%d (running/max)\n",a->gcompress,c->gcompress);
+    strcat(status,aux);
+    sprintf(aux,"transf gdecompress: %d/%d (running/max)\n",a->gdecompress,c->gdecompress);
+    strcat(status,aux);
+    sprintf(aux,"transf encrypt: %d/%d (running/max)\n",a->encrypt,c->encrypt);
+    strcat(status,aux);
+    sprintf(aux,"transf decrypt: %d/%d (running/max)\n",a->decrypt,c->decrypt);
+    strcat(status,aux);
 
 }
 
+
+void incrementaAtivos(char *transformacao){
+
+    if(strcmp("nop",transformacao)==0) a->nop++;
+
+    else if(strcmp("bcompress",transformacao)==0) a->bcompress++;
+
+    else if(strcmp("bdecompress",transformacao)==0) a->bdecompress++;
+
+    else if(strcmp("gcompress",transformacao)==0) a->gcompress++;
+
+    else if(strcmp("gdecompress",transformacao)==0) a->gdecompress++;
+
+    else if(strcmp("encrypt",transformacao)==0) a->encrypt++;
+
+    else if(strcmp("decrypt",transformacao)==0) a->decrypt++;
+
+}
 
 int strToStrArr(char *string, char **str_array, char *delimit) {
     
@@ -259,9 +294,11 @@ int strToStrArr(char *string, char **str_array, char *delimit) {
 
 int main(int argc,char *argv[]){
 
-    Conf c = malloc(sizeof(struct Config));
-    initConf(c);
+    Conf c = malloc(sizeof(struct Filtros));
     readConf(c,argv[1]);
+
+    a = malloc(sizeof(struct Filtros));
+    initAtivos(a);
 
     //Esta é a mainFIFO, que apenas recebe os pedidos de conexão
     mkfifo(mainFIFO,0666);
@@ -291,7 +328,7 @@ int main(int argc,char *argv[]){
             //Cada fork aqui representa um cliente
             if(fork()==0){
 
-                char *pedidoArr[PedidoMAX];
+                char *pedidoArr[128];
                 char *pedidoCopy = strdup(pedido);
                 int pedidoSize = strToStrArr(pedidoCopy,pedidoArr," ");
                 int pid = atoi(pedidoArr[0]);
@@ -322,7 +359,7 @@ int main(int argc,char *argv[]){
                         exit(-1);
                     }
                     char statusString[statusSize];
-                    getStatus(statusString);
+                    getStatus(statusString,c);
                     write(fdW,statusString,sizeof(statusString));
                     close(fdW);
 
@@ -345,6 +382,16 @@ int main(int argc,char *argv[]){
                             int fdInput = open(pedidoArr[2],O_RDONLY);
                             int fdOutput = open(pedidoArr[3],O_WRONLY | O_CREAT,0666);
 
+                            printf("%s\n",pedidoArr[4]);
+                            //a->nop=3;
+                            incrementaAtivos(pedidoArr[4]);
+                            printf("%d\n",a->nop);
+                            //write(1,pedidoArr[0],strlen(pedidoArr[0]));
+                            //write(1,pedidoArr[1],strlen(pedidoArr[1]));
+                            //write(1,pedidoArr[2],strlen(pedidoArr[2]));
+                            //write(1,pedidoArr[3],strlen(pedidoArr[3]));
+                            //write(1,pedidoArr[4],strlen(pedidoArr[4]));
+                            //write(1,pedidoArr[4],strlen(pedidoArr[4]));
                             dup2(fdInput,0);
                             close(fdInput);
                             dup2(fdOutput,1);
@@ -403,6 +450,7 @@ int main(int argc,char *argv[]){
 
                                     char command[CommandSize];
                                     sprintf(command,"%s%s",exe,pedidoArr[opIndex]);
+                                    incrementaAtivos(pedidoArr[opIndex]);
                                     execl(command,command,NULL);
 
                                     // só será usado se o exec se vergar, não esquecer de ver isto!!
@@ -431,6 +479,7 @@ int main(int argc,char *argv[]){
 
                                     char command[CommandSize];
                                     sprintf(command,"%s%s",exe,pedidoArr[opIndex]);
+                                    incrementaAtivos(pedidoArr[opIndex]);
                                     execl(command,command,NULL);
 
                                     // só será usado se o exec se vergar, não esquecer de ver isto!!
@@ -458,6 +507,7 @@ int main(int argc,char *argv[]){
 
                                     char command[CommandSize];
                                     sprintf(command,"%s%s",exe,pedidoArr[opIndex]);
+                                    incrementaAtivos(pedidoArr[opIndex]);
                                     execl(command,command,NULL);
 
                                     // só será usado se o exec se vergar, não esquecer de ver isto!!
