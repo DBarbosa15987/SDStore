@@ -1,13 +1,11 @@
 SDStore-transf
 FIFOs
-client
-server
+sdstore
+sdstored
 *.o
 .vscode
 .idea
 *.bz2
 *.out
-a
-b
-c
-d
+in
+out

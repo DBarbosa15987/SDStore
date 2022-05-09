@@ -11,11 +11,95 @@
 #define exe "../exe/"
 #define server_client_fifo "../FIFOs/server_client_"
 #define client_server_fifo "../FIFOs/client_server_"
-#define LineLength 1024
-#define PedidoMAX 16
-#define CommandSize 128
+#define LineLength 512
+#define PedidoMAX 32
+#define CommandSize 256
+#define statusSize 1024
 
-//
+typedef struct Nodo{
+
+    
+    char pedido[LineLength];
+    int pid;
+    struct Nodo *prox;
+
+}*Lista;
+
+
+Lista Espera = NULL;
+Lista Execucao = NULL;
+
+void removeEspera(){
+
+    if(!Espera) return;
+
+    Espera = Espera->prox;
+
+}
+
+
+Lista append(int pid,char *pedido,Lista l){
+
+    Lista novo = malloc(sizeof(struct Nodo));
+    strcpy(novo->pedido,pedido);
+    novo->pid=pid;
+    novo->prox=NULL;
+
+    if(!l) l=novo;
+    
+    else{
+        Lista aux=l;
+        while(aux->prox){
+            aux=aux->prox;
+        }
+
+        aux->prox=novo;
+    }
+
+    return l;
+
+}
+
+
+Lista removePid(int pid,Lista l){
+
+    if(!l) {return NULL;}
+
+    //Remover no primeiro elemento
+    if(l->pid==pid){
+        l = l->prox;
+        return l;
+    }
+
+    //Remover no meio ou fim da lista
+    Lista ant=l;
+    Lista curr=l->prox;
+    while(ant && curr){
+
+        if(pid==curr->pid){
+
+            ant->prox=curr->prox;
+            break;
+
+        }
+
+        ant=ant->prox;
+        curr=curr->prox;
+
+    }
+    return l;
+
+}
+
+
+void printList(Lista lista){
+    Lista l=lista;
+    while(l){
+        printf("Lista de execução %s|\n",l->pedido);
+        l=l->prox;
+    }
+    putchar('\n');
+}
 
 //Função para ler uma linha de um ficheiro
 ssize_t readln(int fd, char* line, size_t size) {
@@ -45,6 +129,14 @@ typedef struct Config{
     int decrypt;
 
 }*Conf;
+
+void println(char *str){
+
+    char nl = 10;
+    write(1,str,strlen(str));
+    write(1,&nl,1);
+
+}
 
 //Os valores das configs são inicializados a zero caso não constem no ficheiro de config
 void initConf(Conf c){
@@ -132,6 +224,25 @@ void readConf(Conf c,const char *path){
 
 }
 
+// Formatação da string status que será enviada ao cliente 
+// (aqui assume-se que a string tem espaço suficiente)
+void getStatus(char *status){
+
+    Lista auxEspera = Espera;
+    Lista auxExecucao = Execucao;
+    // Processos Ativos
+    for(;auxEspera;auxEspera=auxEspera->prox){
+        println(auxEspera->pedido);
+    }
+
+    // Config (running/max)
+    for(;auxExecucao;auxExecucao=auxExecucao->prox){
+        println(auxExecucao->pedido);
+    }
+
+
+}
+
 
 int strToStrArr(char *string, char **str_array, char *delimit) {
     
@@ -155,35 +266,34 @@ int main(int argc,char *argv[]){
     //Esta é a mainFIFO, que apenas recebe os pedidos de conexão
     mkfifo(mainFIFO,0666);
 
-    char pedido[100];
+    char pedido[LineLength];
     char fifoRead[64];
     char fifoWrite[64];
     ssize_t tamanhoPedido;
-    
 
-    while(1){
+    //abrir um fifo com escruta para o pipe nunca levar EOF, isto tudo em vez do while(1) e colocar while(read>0)
+    //Abrir main pipe para receber pedidos de conexão
+    int mainFIFOfd = open(mainFIFO,O_RDONLY);
+    int mainFIFOfdW = open(mainFIFO,O_WRONLY);
 
-        //Abrir main pipe para receber pedidos de conexão
-        int mainFIFOfd = open(mainFIFO,O_RDONLY);
-        
-        /*Quando uma conexão chega, o servidor lê o pedido e processa-o;
-        O pedido será do tipo "pid pedido arg arg...";*/
-        tamanhoPedido = read(mainFIFOfd,pedido,sizeof(pedido));
-        close(mainFIFOfd);
+    /*Quando uma conexão chega, o servidor lê o pedido e processa-o;
+    O pedido será do tipo "pid pedido arg arg...";*/
+    while((tamanhoPedido = read(mainFIFOfd,pedido,sizeof(pedido)))>0){
 
 
         //Aqui assume-se que o cliente introduziu um comando válido,
         //ou que o client side o tenha autenticado!
         if(tamanhoPedido>0){
         
-            printf("Pedido: %s|\n",pedido);
-            fflush(NULL);
+            //printf("Pedido: %s|\n",pedido);
+            //fflush(NULL);
             
             //Cada fork aqui representa um cliente
             if(fork()==0){
 
                 char *pedidoArr[PedidoMAX];
-                int pedidoSize = strToStrArr(pedido,pedidoArr," ");
+                char *pedidoCopy = strdup(pedido);
+                int pedidoSize = strToStrArr(pedidoCopy,pedidoArr," ");
                 int pid = atoi(pedidoArr[0]);
                 
                 memset(fifoRead,0,sizeof(fifoRead));
@@ -194,13 +304,10 @@ int main(int argc,char *argv[]){
                 //Abrir os FIFOs privados do client
                 mkfifo(fifoRead,0666);
                 mkfifo(fifoWrite,0666);
-            
-                //printf("%s|%d|\n",pedidoArr[1],strcmp(pedidoArr[1],"proc-file"));
-                //fflush(NULL);
  
                 // Exemplos de pedidos:
-                // 32132 status
-                // 32132 proc-file path_in path_out nop nop nop ...
+                // 12345 status
+                // 12345 proc-file path_in path_out nop nop nop ...
                 // { 0       1        2        3     4   5   6  ...}
 
 
@@ -214,8 +321,9 @@ int main(int argc,char *argv[]){
                         perror("Erro ao abrir o pipe");//error check
                         exit(-1);
                     }
-                    char a[] = "bruhhhhhhh";
-                    write(fdW,a,sizeof(a));
+                    char statusString[statusSize];
+                    getStatus(statusString);
+                    write(fdW,statusString,sizeof(statusString));
                     close(fdW);
 
                 }
@@ -223,7 +331,9 @@ int main(int argc,char *argv[]){
                 else if(strcmp(pedidoArr[1],"proc-file")==0){//falta aqui validar o path
                     
                     int n_op = pedidoSize-4;
-                    printf("\n%d\n",n_op);
+                    //printf("\nproc-file:%d\n",n_op);
+                    Execucao = append(pid,pedido,Execucao);
+                    printList(Execucao);
                     fflush(NULL);
 
                     // Apenas uma operação, por isso não é preciso pipes,
@@ -244,10 +354,14 @@ int main(int argc,char *argv[]){
                             sprintf(command,"%s%s",exe,pedidoArr[4]);
                             execl(command,command,NULL);
 
-                            printf("\nFalhou: (%s)\n",command);
-                            fflush(NULL);
                             // só será usado se o exec se vergar, não esquecer de ver isto!!
                             exit(-1);
+
+                        }
+                        else{
+
+                            int status;
+                            wait(&status);
 
                         }
 
@@ -262,7 +376,6 @@ int main(int argc,char *argv[]){
                         int p[n_pipes][2];
                         int opIndex;
 
-                        //Este ciclo será executado sequencialmente
                         for(int i=0;i<n_op;i++){
 
                             opIndex = 4+i;
@@ -293,12 +406,12 @@ int main(int argc,char *argv[]){
                                     execl(command,command,NULL);
 
                                     // só será usado se o exec se vergar, não esquecer de ver isto!!
+                                    //talvez executar o _exit???
                                     exit(-1);
                                 }
                                 else{
                                     
                                     close(p[i][1]);
-                                    wait(NULL);
 
                                 }
 
@@ -326,10 +439,7 @@ int main(int argc,char *argv[]){
                                 }
                                 else{
 
-                                    close(p[i-1][0]);
-                                    wait(NULL);
-                                    printf("Acabei\n");
-                                    fflush(NULL);
+                                    close(p[i-1][0]);                                    
 
                                 }
 
@@ -358,11 +468,18 @@ int main(int argc,char *argv[]){
 
                                     close(p[i-1][0]);
                                     close(p[i][1]);
-                                    wait(NULL);
 
                                 }
 
                             }
+
+                        }
+
+                        // Esperar para que todos os filhos
+                        for(int i=0;i<n_op;i++){
+                            
+                            int status;
+                            wait(&status);
 
                         }
 
@@ -372,7 +489,7 @@ int main(int argc,char *argv[]){
 
                 else{
 
-                    printf("bomdia\n");
+                    printf("Comando inválido\n");
                     fflush(NULL);
 
                 }
@@ -393,11 +510,11 @@ int main(int argc,char *argv[]){
 
         }
 
-
     }
 
-    unlink(mainFIFO);
-    
+    close(mainFIFOfdW);
+    close(mainFIFOfd);
+    unlink(mainFIFO); 
 
 }
 

@@ -1,15 +1,15 @@
 #Esta Makefile é apenas provisória, depois usamos a do prof
 
-all: clean fifo client server
+all: clean fifo sdstore sdstored
 
 fifo:
 	mkdir FIFOs
 
-client: 
-	gcc src/client.c -o src/client -Wall
+sdstore: 
+	gcc src/sdstore.c -o src/sdstore -Wall
 
-server:
-	gcc src/server.c -o src/server -Wall
+sdstored:
+	gcc src/sdstored.c -o src/sdstored -Wall
 
 clean:
-	rm -rf src/*client src/*server src/*.o FIFOs
+	rm -rf src/*sdstore src/*sdstored src/*.o FIFOs out/*

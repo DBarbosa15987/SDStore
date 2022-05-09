@@ -10,7 +10,7 @@
 #define mainFIFO "../FIFOs/mainFIFO"
 #define server_client_fifo "../FIFOs/server_client_"
 #define client_server_fifo "../FIFOs/client_server_"
-#define messageSIZE 256
+#define messageSize 256
 
 void println(char *str){
 
@@ -24,9 +24,9 @@ void println(char *str){
 int main(int argc,char *argv[]){
 
     int pid = (int) getpid();
-    char pedido[messageSIZE];
-    char fifoWrite[64];
-    char fifoRead[64];
+    char pedido[messageSize];
+    char fifoWrite[messageSize];
+    char fifoRead[messageSize];
     int mainFIFOfd = open(mainFIFO,O_WRONLY);
     int status=0;
     
@@ -107,7 +107,7 @@ int main(int argc,char *argv[]){
             exit(-1);
         }
 
-        char resposta[messageSIZE];
+        char resposta[messageSize];
         int respostaSize = read(fdR,resposta,sizeof(resposta));
         close(fdR);
 
