@@ -6,40 +6,53 @@
 #include <stdio.h>
 #include <sys/wait.h>
 #include <string.h>
+#include <signal.h>
+#include <sys/mman.h>
 
 #define mainFIFO "../FIFOs/mainFIFO"
 #define exe "../exe/"
 #define server_client_fifo "../FIFOs/server_client_"
 #define client_server_fifo "../FIFOs/client_server_"
+#define fifo_signals "../FIFOs/fifo_signals"
 #define LineLength 512
 #define PedidoMAX 32
 #define CommandSize 256
 #define statusSize 2048
+#define nTransf 7
 
 
 typedef struct Nodo{
-
-    
+   
     char pedido[LineLength];
+    int *transfCliente;
     int pid;
     struct Nodo *prox;
 
 }*Lista;
 
 
+/*
+Config & Ativos:
+
+    0 nop;
+    1 bcompress;
+    2 bdecompress;
+    3 gcompress;
+    4 gdecompress;
+    5 encrypt;
+    6 decrypt;
+
+*/
+
+//Eu tinha 613 linhas no pico da estupidez
+
+int Config[nTransf];
+int Ativos[nTransf];
 Lista Espera = NULL;
 Lista Execucao = NULL;
 
 
-void removeEspera(){
-
-    if(!Espera) return;
-    Espera = Espera->prox;
-
-}
-
-
-Lista append(int pid,char *pedido,Lista l){
+Lista append(int pid,int *transfCliente,char *pedido,Lista l){
 
     Lista novo = malloc(sizeof(struct Nodo));
     strcpy(novo->pedido,pedido);
@@ -62,25 +75,26 @@ Lista append(int pid,char *pedido,Lista l){
 }
 
 
-Lista removePid(int pid,Lista l){
+Lista removePid(int pid){
 
-    if(!l) {return NULL;}
+    if(!Execucao) {return NULL;}
 
     //Remover no primeiro elemento
-    if(l->pid==pid){
-        l = l->prox;
-        return l;
+    if(Execucao->pid==pid){
+        Lista r = Execucao;
+        Execucao = Execucao->prox;
+        return r;
     }
 
     //Remover no meio ou fim da lista
-    Lista ant=l;
-    Lista curr=l->prox;
+    Lista ant=Execucao;
+    Lista curr=Execucao->prox;
     while(ant && curr){
 
         if(pid==curr->pid){
 
             ant->prox=curr->prox;
-            break;
+            return curr;
 
         }
 
@@ -88,7 +102,6 @@ Lista removePid(int pid,Lista l){
         curr=curr->prox;
 
     }
-    return l;
 
 }
 
@@ -118,21 +131,6 @@ ssize_t readln(int fd, char* line, size_t size) {
     return line_length;
 }
 
-
-typedef struct Filtros{
-
-    int nop;
-    int bcompress;
-    int bdecompress;
-    int gcompress;
-    int gdecompress;
-    int encrypt;
-    int decrypt;
-
-}*Conf,*Ativos;
-
-Ativos a;
-
 void println(char *str){
 
     char nl = 10;
@@ -142,94 +140,28 @@ void println(char *str){
 }
 
 //Os valores das configs são inicializados a zero caso não constem no ficheiro de config
-void initAtivos(Ativos a){
+void initAtivos(){
 
-    a->nop = 0;
-    a->bcompress = 0;
-    a->bdecompress = 0;
-    a->gcompress = 0;
-    a->gdecompress = 0;
-    a->encrypt = 0;
-    a->decrypt = 0;
+    for(int i=0;i<nTransf;i++) Ativos[i]=0;
 
 }
 
 
-void readConf(Conf c,const char *path){
-
+char *readConf(const char *path){
     ssize_t size;
     int fd = open(path,O_RDONLY);
-    char line[LineLength];
-    
-    //A linha é do tipo "comando limite"
-    while((size = readln(fd,line,LineLength))>0){
+    char file[LineLength];
 
-        char *token = strtok(line," ");
-        int n;
+    read(fd,file,sizeof(file));
+    close(fd);
 
-        if(strcmp("nop",token)==0){
-
-            token = strtok(NULL," ");
-            n = atoi(token);
-            c->nop = n;
-
-        }
-
-        else if(strcmp("bcompress",token)==0){
-
-            token = strtok(NULL," ");
-            n = atoi(token);
-            c->bcompress = n;
-
-        }
-
-        else if(strcmp("bdecompress",token)==0){
-
-            token = strtok(NULL," ");
-            n = atoi(token);
-            c->bdecompress = n;
-
-        }
-
-        else if(strcmp("gcompress",token)==0){
-
-            token = strtok(NULL," ");
-            n = atoi(token);
-            c->gcompress = n;
-
-        }
-
-        else if(strcmp("gdecompress",token)==0){
-
-            token = strtok(NULL," ");
-            n = atoi(token);
-            c->gdecompress = n;
-
-        }
-
-        else if(strcmp("encrypt",token)==0){
-
-            token = strtok(NULL," ");
-            n = atoi(token);
-            c->encrypt = n;
-
-        }
-
-        else if(strcmp("decrypt",token)==0){
-
-            token = strtok(NULL," ");
-            n = atoi(token);
-            c->decrypt = n;
-
-        }
-
-    }
+    return file;
 
 }
 
 // Formatação da string status que será enviada ao cliente 
 // (aqui assume-se que a string tem espaço suficiente)
-void getStatus(char *status,Conf c){
+void getStatus(char *status){
 
     Lista auxEspera = Espera;
     Lista auxExecucao = Execucao;
@@ -243,41 +175,23 @@ void getStatus(char *status,Conf c){
     }
 
     // Config (running/max)
-    sprintf(aux,"transf nop: %d/%d (running/max)\n",a->nop,c->nop);
+    sprintf(aux,"transf nop: %d/%d (running/max)\n",Ativos[0],Config[0]);
     strcat(status,aux);
-    sprintf(aux,"transf bcompress: %d/%d (running/max)\n",a->bcompress,c->bcompress);
+    sprintf(aux,"transf bcompress: %d/%d (running/max)\n",Ativos[1],Config[1]);
     strcat(status,aux);
-    sprintf(aux,"transf bdecompress: %d/%d (running/max)\n",a->bdecompress,c->bdecompress);
+    sprintf(aux,"transf bdecompress: %d/%d (running/max)\n",Ativos[2],Config[2]);
     strcat(status,aux);
-    sprintf(aux,"transf gcompress: %d/%d (running/max)\n",a->gcompress,c->gcompress);
+    sprintf(aux,"transf gcompress: %d/%d (running/max)\n",Ativos[3],Config[3]);
     strcat(status,aux);
-    sprintf(aux,"transf gdecompress: %d/%d (running/max)\n",a->gdecompress,c->gdecompress);
+    sprintf(aux,"transf gdecompress: %d/%d (running/max)\n",Ativos[4],Config[4]);
     strcat(status,aux);
-    sprintf(aux,"transf encrypt: %d/%d (running/max)\n",a->encrypt,c->encrypt);
+    sprintf(aux,"transf encrypt: %d/%d (running/max)\n",Ativos[5],Config[5]);
     strcat(status,aux);
-    sprintf(aux,"transf decrypt: %d/%d (running/max)\n",a->decrypt,c->decrypt);
+    sprintf(aux,"transf decrypt: %d/%d (running/max)\n",Ativos[6],Config[6]);
     strcat(status,aux);
 
 }
 
-
-void incrementaAtivos(char *transformacao){
-
-    if(strcmp("nop",transformacao)==0) a->nop++;
-
-    else if(strcmp("bcompress",transformacao)==0) a->bcompress++;
-
-    else if(strcmp("bdecompress",transformacao)==0) a->bdecompress++;
-
-    else if(strcmp("gcompress",transformacao)==0) a->gcompress++;
-
-    else if(strcmp("gdecompress",transformacao)==0) a->gdecompress++;
-
-    else if(strcmp("encrypt",transformacao)==0) a->encrypt++;
-
-    else if(strcmp("decrypt",transformacao)==0) a->decrypt++;
-
-}
 
 int strToStrArr(char *string, char **str_array, char *delimit) {
     
@@ -292,21 +206,47 @@ int strToStrArr(char *string, char **str_array, char *delimit) {
     return n_words;
 }
 
+
+void signalRemoveExecucao(int signum){
+
+    int fd = open(fifo_signals,O_RDONLY);
+    int pid;
+    read(fd,&pid,4);
+
+    Lista removido = removePid(pid);
+
+    for(int i=0;i<nTransf;i++){
+        Ativos[i] -= removido->transfCliente[i];
+    }
+    
+    //falta acordar os que tao á espera
+
+}
+
+
 int main(int argc,char *argv[]){
 
-    Conf c = malloc(sizeof(struct Filtros));
-    readConf(c,argv[1]);
+    char *configStr = readConf(argv[1]);
+    char *configArr[nTransf];
+    int sizeConfig = strToStrArr(configStr,configArr," \n");
 
-    a = malloc(sizeof(struct Filtros));
-    initAtivos(a);
+    for(int i=1,j=0;i<sizeConfig;j++,i+=2){
+        Config[j] = atoi(configArr[i]);
+    }
+
+    initAtivos();
 
     //Esta é a mainFIFO, que apenas recebe os pedidos de conexão
     mkfifo(mainFIFO,0666);
+    mkfifo(fifo_signals,0666);
 
     char pedido[LineLength];
     char fifoRead[64];
     char fifoWrite[64];
     ssize_t tamanhoPedido;
+
+    signal(SIGUSR1,signalRemoveExecucao);
+
 
     //abrir um fifo com escruta para o pipe nunca levar EOF, isto tudo em vez do while(1) e colocar while(read>0)
     //Abrir main pipe para receber pedidos de conexão
@@ -320,58 +260,93 @@ int main(int argc,char *argv[]){
 
         //Aqui assume-se que o cliente introduziu um comando válido,
         //ou que o client side o tenha autenticado!
-        if(tamanhoPedido>0){
-        
-            //printf("Pedido: %s|\n",pedido);
-            //fflush(NULL);
-            
-            //Cada fork aqui representa um cliente
-            if(fork()==0){
+        if(tamanhoPedido>0){            
 
-                char *pedidoArr[128];
-                char *pedidoCopy = strdup(pedido);
-                int pedidoSize = strToStrArr(pedidoCopy,pedidoArr," ");
-                int pid = atoi(pedidoArr[0]);
+            int transfCliente[nTransf] = {0};
+            char *pedidoArr[128];
+            char *pedidoCopy = strdup(pedido);
+            int pedidoSize = strToStrArr(pedidoCopy,pedidoArr," ");
+            int pid = atoi(pedidoArr[0]);
+            int temEspaco=1;
+            
+            memset(fifoRead,0,sizeof(fifoRead));
+            memset(fifoWrite,0,sizeof(fifoWrite));
+            sprintf(fifoRead,"%s%d",client_server_fifo, pid);
+            sprintf(fifoWrite,"%s%d",server_client_fifo, pid);
+            
+            //Abrir os FIFOs privados do client
+            mkfifo(fifoRead,0666);
+            mkfifo(fifoWrite,0666);
+
+            //Não esquecer do memset e tal
+            if(strcmp(pedidoArr[1],"status")==0){
                 
-                memset(fifoRead,0,sizeof(fifoRead));
-                memset(fifoWrite,0,sizeof(fifoWrite));
-                sprintf(fifoRead,"%s%d",client_server_fifo, pid);
-                sprintf(fifoWrite,"%s%d",server_client_fifo, pid);
+                //Aqui apenas é preciso um FIFO de write
+                int fdW = open(fifoWrite,O_WRONLY);
+                if(fdW==-1){
+                    perror("Erro ao abrir o pipe");//error check
+                    exit(-1);
+                }
+                char statusString[statusSize];
+                getStatus(statusString);
+                write(fdW,statusString,sizeof(statusString));
+                close(fdW);
+
+            }
+
+
+            else if(strcmp(pedidoArr[1],"proc-file")==0){//falta aqui validar o path
+
+
+                for(int i=4;i<pedidoSize;i++){
+
+                    for(int j=0,k=0;j<nTransf;j++,k+=2){
+                        if(strcmp(configArr[k],pedidoArr[i])==0) transfCliente[j]++;
+                    }
+
+                }
+
+                //Se existe alguém à espera, então obviamente este põe-se na fila
+                //if(Espera) temEspaco = 0;
+
+                //Ver se existem transformações disponíveis
+                for(int i=0;i<nTransf;i++){
+
+                    if(Ativos[i]+transfCliente[i] > Config[i]) temEspaco=0;
+
+                }
+
                 
-                //Abrir os FIFOs privados do client
-                mkfifo(fifoRead,0666);
-                mkfifo(fifoWrite,0666);
- 
+                //Se tem espaço, marcar a utilização destas transformações
+                if(temEspaco){
+                    //!!HARDCODED!! -> falta a lista de espera!!
+                    for(int i=0;i<nTransf;i++){
+
+                        Ativos[i] += transfCliente[i];
+
+                    }
+
+                }
+
+                pid_t pid_fileProc;
+
                 // Exemplos de pedidos:
                 // 12345 status
                 // 12345 proc-file path_in path_out nop nop nop ...
                 // { 0       1        2        3     4   5   6  ...}
+            
+                //Cada fork aqui representa um cliente
+                if((pid_fileProc=fork())==0){
 
-
-                //falta defenir uma string, e não esquecer do memset e tal
-                if(strcmp(pedidoArr[1],"status")==0){
-                    
-                    //aqui falta calcular a string de status
-                    //Aqui apenas é preciso um FIFO de write
-                    int fdW = open(fifoWrite,O_WRONLY);
-                    if(fdW==-1){
-                        perror("Erro ao abrir o pipe");//error check
-                        exit(-1);
+                    if(!temEspaco){
+                        pause();
                     }
-                    char statusString[statusSize];
-                    getStatus(statusString,c);
-                    write(fdW,statusString,sizeof(statusString));
-                    close(fdW);
 
-                }
 
-                else if(strcmp(pedidoArr[1],"proc-file")==0){//falta aqui validar o path
-                    
                     int n_op = pedidoSize-4;
                     //printf("\nproc-file:%d\n",n_op);
-                    Execucao = append(pid,pedido,Execucao);
-                    printList(Execucao);
-                    fflush(NULL);
+                    //Execucao = append(pid,pedido,Execucao);
+                    //printList(Execucao);
 
                     // Apenas uma operação, por isso não é preciso pipes,
                     // é feito diretamente do input-file para o output-file
@@ -382,16 +357,6 @@ int main(int argc,char *argv[]){
                             int fdInput = open(pedidoArr[2],O_RDONLY);
                             int fdOutput = open(pedidoArr[3],O_WRONLY | O_CREAT,0666);
 
-                            printf("%s\n",pedidoArr[4]);
-                            //a->nop=3;
-                            incrementaAtivos(pedidoArr[4]);
-                            printf("%d\n",a->nop);
-                            //write(1,pedidoArr[0],strlen(pedidoArr[0]));
-                            //write(1,pedidoArr[1],strlen(pedidoArr[1]));
-                            //write(1,pedidoArr[2],strlen(pedidoArr[2]));
-                            //write(1,pedidoArr[3],strlen(pedidoArr[3]));
-                            //write(1,pedidoArr[4],strlen(pedidoArr[4]));
-                            //write(1,pedidoArr[4],strlen(pedidoArr[4]));
                             dup2(fdInput,0);
                             close(fdInput);
                             dup2(fdOutput,1);
@@ -413,7 +378,7 @@ int main(int argc,char *argv[]){
                         }
 
                     }
-                    
+
                     //Mais do que uma transformação aplicada a um ficheiro
                     //Um ou mais pipes serão necessários
                     else{
@@ -433,13 +398,13 @@ int main(int argc,char *argv[]){
                                     exit(-1);
                                 }
                             }
-                            
+
                             //Primeiro argumento, em que não lêmos de um pipe,
                             //mas sim do pedido original e escrevemos num pipe
                             if(i==0){
 
                                 if(fork()==0){
-                                    
+
                                     close(p[i][0]);
                                     int fdInput = open(pedidoArr[2],O_RDONLY);
 
@@ -458,7 +423,7 @@ int main(int argc,char *argv[]){
                                     exit(-1);
                                 }
                                 else{
-                                    
+
                                     close(p[i][1]);
 
                                 }
@@ -527,11 +492,27 @@ int main(int argc,char *argv[]){
 
                         // Esperar para que todos os filhos
                         for(int i=0;i<n_op;i++){
-                            
+
                             int status;
                             wait(&status);
 
                         }
+                        
+                        //Acabou o proc-file
+                        int pid_signal = getpid();
+                        kill(getppid(),SIGUSR1);
+                        sleep(1);
+                        int fifoFD = open(fifo_signals,O_WRONLY);
+                        write(fifoFD,&pid_signal,4);
+                        close(fifoFD);                      
+
+
+                        //falta remover as cenas da lista 
+
+                        unlink(fifoRead);
+                        unlink(fifoWrite);
+
+                        exit(0);
 
                     }
 
@@ -539,28 +520,31 @@ int main(int argc,char *argv[]){
 
                 else{
 
-                    printf("Comando inválido\n");
-                    fflush(NULL);
+                    if(temEspaco){
+                        Execucao = append(pid_fileProc,transfCliente,pedido,Execucao);
+                    }
+                    else{
+                        Espera = append(pid_fileProc,transfCliente,pedido,Espera);
+                    }
 
                 }
 
 
-                unlink(fifoRead);
-                unlink(fifoWrite);
+            }
+            else{
 
-                exit(0);
-            }            
+                printf("Operação inválida\n");
+
+            }
+
 
         }
-
         else{
 
             perror("Erro na Leitura: ");
             exit(-1);
 
         }
-
-    }
 
     close(mainFIFOfdW);
     close(mainFIFOfd);
