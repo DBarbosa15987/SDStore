@@ -11,6 +11,7 @@
 #define server_client_fifo "../FIFOs/server_client_"
 #define client_server_fifo "../FIFOs/client_server_"
 #define messageSize 256
+#define statusSize 4096
 
 void println(char *str){
 
@@ -98,7 +99,7 @@ int main(int argc,char *argv[]){
             exit(-1);
         }
 
-        char resposta[messageSize];
+        char resposta[statusSize];
         int respostaSize = read(fdR,resposta,sizeof(resposta));
         close(fdR);
 

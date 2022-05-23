@@ -17,7 +17,7 @@
 #define LineLength 512
 #define PedidoMAX 32
 #define CommandSize 256
-#define statusSize 2048
+#define statusSize 4096
 #define nTransf 7
 #define messageSize 256
 
@@ -187,11 +187,40 @@ void getStatus(char *status){
     char aux[64];
 
     // Processos Ativos
-    //for(;auxExecucao;auxExecucao=auxExecucao->prox){
-    //    strcat(status,"task : ");
-    //    //strcat(status,auxExecucao->pedido);
-    //    strcat(status,"\n");
-    //}
+    strcat(status,"Lista de Ativos: ");
+    if(auxExecucao){
+        strcat(status,"\n\n");
+    }
+    else{
+        strcat(status,"Vazia\n\n");
+    }
+
+    while(auxExecucao){
+        strcat(status,"\ttask : ");
+        strcat(status,auxExecucao->pedido);
+        strcat(status,"\n");
+        auxExecucao=auxExecucao->prox;
+    }
+
+    strcat(status,"\n");
+
+    // Lista de Espera
+    strcat(status,"Lista de Espera: ");
+    if(auxEspera){
+        strcat(status,"\n\n");
+    }
+    else{
+        strcat(status,"Vazia\n\n");
+    }
+
+    while(auxEspera){
+        strcat(status,"\ttask : ");
+        strcat(status,auxEspera->pedido);
+        strcat(status,"\n");
+        auxEspera=auxEspera->prox;
+    }
+
+    strcat(status,"\n");
 
     // Config (running/max)
     sprintf(aux,"transf nop: %d/%d (running/max)\n",Ativos[0],Config[0]);
@@ -208,13 +237,6 @@ void getStatus(char *status){
     strcat(status,aux);
     sprintf(aux,"transf decrypt: %d/%d (running/max)\n\n",Ativos[6],Config[6]);
     strcat(status,aux);
-
-    // Lista de espera
-    //for(;auxEspera;auxEspera=auxEspera->prox){
-    //    strcat(status,"task : ");
-    //    //strcat(status,auxEspera->pedido);
-    //    strcat(status,"\n");
-    //}
 
 }
 
@@ -257,7 +279,6 @@ void signalRemoveExecucao(int signum){
 
         if(!tchau){
 
-            
             //Aqui as transformações estão disponíveis
             int pidNovo = EsperaAux->pid;
             Lista nodo = removeEspera();
@@ -347,7 +368,7 @@ int main(int argc,char *argv[]){
                     perror("Erro ao abrir o pipe");
                     exit(-1);
                 }
-                char statusString[statusSize];
+                char statusString[statusSize] = "";
                 getStatus(statusString);
                 write(fdW,statusString,sizeof(statusString));
                 close(fdW);
@@ -355,7 +376,6 @@ int main(int argc,char *argv[]){
                 unlink(fifoWrite);
 
             }
-
 
             else if(strcmp(pedidoArr[1],"proc-file")==0){//falta aqui validar o path
 
@@ -392,18 +412,16 @@ int main(int argc,char *argv[]){
                     int fdW = open(fifoWrite,O_WRONLY);
                     char resposta[messageSize];
 
-                    if(!temEspaco){
-                        printf("Fui dormir com o pid %d\n",getpid());                        
-                        sprintf(resposta,"O servidor não tem capacidade de o atender, o seu pedido foi colocado na lisa de espera...\n");
+                    if(!temEspaco){                       
+                        sprintf(resposta,"O servidor não tem capacidade de o atender, o seu pedido foi colocado na lista de espera...\n");
                         write(fdW,resposta,strlen(resposta));
                         pause();
-                        printf("Acordei com o pid %d\n",getpid());
-                        sprintf(resposta,"O seu pedido saiu da fila de espera e vai começar a ser executado\n\n");
+                        sprintf(resposta,"O seu pedido saiu da fila de espera e vai começar a ser executado\n");
                         write(fdW,resposta,strlen(resposta));
                     }
                     else{
 
-                        sprintf(resposta,"O seu pedido vai começar a ser executado\n\n");
+                        sprintf(resposta,"O seu pedido vai começar a ser executado\n");
                         write(fdW,resposta,strlen(resposta));
 
                     }
@@ -490,6 +508,7 @@ int main(int argc,char *argv[]){
                                 }
 
                             }
+
                             //Último argumento, que o conteúdo é lido de um pipe
                             //e escrito para o ficheiro de output recebido no pedido
                             else if(i==(n_op-1)){
@@ -550,19 +569,13 @@ int main(int argc,char *argv[]){
                         }
 
                         // Esperar para que todos os filhos
-                        for(int i=0;i<n_op;i++){
-
-                            int status;
-                            wait(&status);
-                            printf("Chegou %d/%d\n",i+1,n_op);
-
-                        }
+                        for(int i=0;i<n_op;i++) wait(NULL);
 
                     }
 
                     // Acabou o proc-file
                     kill(getppid(),SIGUSR1);
-                    sleep(2);
+                    sleep(1);
                     int fifoFD = open(fifo_signals,O_WRONLY);
                     int pidFilho = getpid();
                     write(fifoFD,&pidFilho,sizeof(int));
@@ -589,9 +602,7 @@ int main(int argc,char *argv[]){
 
             }
             else{
-
                 printf("Operação inválida\n");
-
             }
 
         }
