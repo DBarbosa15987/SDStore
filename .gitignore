@@ -11,3 +11,4 @@ in
 out
 cmake-build-debug
 CMakeList.txt
+*.h
