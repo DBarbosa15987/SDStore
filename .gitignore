@@ -9,3 +9,5 @@ sdstored
 *.out
 in
 out
+cmake-build-debug
+CMakeList.txt
