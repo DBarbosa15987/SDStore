@@ -143,20 +143,3 @@ int main(int argc,char *argv[]){
     return 0;
 
 }
-
-/*
-
-0000 is ---------
-0666 is rw-rw-rw-
-0777 is rwxrwxrwx
-0700 is rwx------
-0100 is --x------
-0001 is --------x
-0002 is -------w-
-0003 is -------wx
-0004 is ------r--
-0005 is ------r-x
-0006 is ------rw-
-0007 is ------rwx
-
-*/
