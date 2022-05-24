@@ -9,10 +9,10 @@
 #include <signal.h>
 #include <sys/mman.h>
 
-#define mainFIFO "../FIFOs/mainFIFO"
-#define server_client_fifo "../FIFOs/server_client_"
-#define client_server_fifo "../FIFOs/client_server_"
-#define fifo_signals "../FIFOs/fifo_signals"
+#define mainFIFO "../tmp/mainFIFO"
+#define server_client_fifo "../tmp/server_client_"
+#define client_server_fifo "../tmp/client_server_"
+#define fifo_signals "../tmp/fifo_signals"
 #define LineLength 512
 #define PedidoMAX 32
 #define CommandSize 256

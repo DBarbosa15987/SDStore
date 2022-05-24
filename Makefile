@@ -17,7 +17,7 @@ obj/sdstore.o: src/sdstore.c
 	gcc -Wall -g -c src/sdstore.c -o obj/sdstore.o
 
 clean: 
-	rm obj/* FIFOs/* bin/{sdstore,sdstored}
+	rm obj/* tmp/* bin/{sdstore,sdstored}
 
 reset:
-	rm obj/* FIFOs/* bin/{sdstore,sdstored} out/*
+	rm obj/* tmp/* bin/{sdstore,sdstored} out/*

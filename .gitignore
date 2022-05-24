@@ -1,10 +1,6 @@
 SDStore-transf
-FIFOs
-sdstore
-sdstored
 .vscode
 .idea
 *.bz2
 *.out
-in
-out
+in/*

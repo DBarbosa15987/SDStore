@@ -7,9 +7,9 @@
 #include <sys/wait.h>
 #include <string.h>
 
-#define mainFIFO "../FIFOs/mainFIFO"
-#define server_client_fifo "../FIFOs/server_client_"
-#define client_server_fifo "../FIFOs/client_server_"
+#define mainFIFO "../tmp/mainFIFO"
+#define server_client_fifo "../tmp/server_client_"
+#define client_server_fifo "../tmp/client_server_"
 #define messageSize 256
 #define statusSize 4096
 
