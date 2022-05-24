@@ -10,7 +10,6 @@
 #include <sys/mman.h>
 
 #define mainFIFO "../FIFOs/mainFIFO"
-#define exe "../exe/"
 #define server_client_fifo "../FIFOs/server_client_"
 #define client_server_fifo "../FIFOs/client_server_"
 #define fifo_signals "../FIFOs/fifo_signals"
@@ -31,6 +30,12 @@ typedef struct Nodo{
 
 }*Lista;
 
+int Config[nTransf];
+int Ativos[nTransf];
+int on = 1;
+int mainFIFOfdW;
+Lista Espera = NULL;
+Lista Execucao = NULL;
 
 /*
 Config & Ativos & nTransf:
@@ -44,12 +49,6 @@ Config & Ativos & nTransf:
     6 decrypt;
 
 */
-
-
-int Config[nTransf];
-int Ativos[nTransf];
-Lista Espera = NULL;
-Lista Execucao = NULL;
 
 
 // Append numa lista ligada, retornada por output
@@ -91,7 +90,7 @@ Lista removeEspera(){
 }
 
 
-// Remove o pid da lista de execução
+// Remove o pid da lista de execução, Execução->1, Espera->0
 Lista removePid(int pid){
 
     if(!Execucao) return NULL;
@@ -125,32 +124,6 @@ Lista removePid(int pid){
     // Não retorna nada
     return NULL;
 
-}
-
-
-void printList(Lista lista){
-    Lista l=lista;
-    while(l){
-        printf("Lista de execução %s|\n",l->pedido);
-        l=l->prox;
-    }
-    putchar('\n');
-}
-
-//Função para ler uma linha de um ficheiro
-ssize_t readln(int fd, char* line, size_t size) {
-    ssize_t bytes_read = read(fd, line, size);
-    if(!bytes_read) return 0;
-
-    size_t line_length = strcspn(line, "\n") + 1;
-
-    if(bytes_read < line_length) line_length = bytes_read;
-
-    //colocar o '\0' no final da string para ser "válida"
-    line[line_length] = 0;
-    
-    lseek(fd, line_length - bytes_read, SEEK_CUR);
-    return line_length;
 }
 
 
@@ -262,25 +235,24 @@ void signalRemoveExecucao(int signum){
     read(fd,&pid,sizeof(int));
 
     Lista removido = removePid(pid);
+    //if(!removido) return;
+
     for(int i=0;i<nTransf;i++){
         Ativos[i] -= removido->transfCliente[i];
     }
 
-    // Ver os que estão à espera
-    Lista EsperaAux = Espera;
-
-    //while(EsperaAux){
-    if(Espera){
+    //A fila de espera é apenas FIFO :(
+    if(Espera){   
         int tchau=0;
 
         for(int i=0;i<nTransf;i++){
-            if(Ativos[i] + EsperaAux->transfCliente[i] > Config[i]) tchau=1;       
+            if(Ativos[i] + Espera->transfCliente[i] > Config[i]) tchau=1;       
         }
 
         if(!tchau){
 
-            //Aqui as transformações estão disponíveis
-            int pidNovo = EsperaAux->pid;
+            // Remover da lista de Espera
+            int pidNovo = Espera->pid;
             Lista nodo = removeEspera();
 
             // Marcar os filtros como usados
@@ -293,15 +265,22 @@ void signalRemoveExecucao(int signum){
             return;
         
         }
-        //EsperaAux = EsperaAux->prox;
 
     }
 
 }
 
 
-void signada(){}
+void signalEnd(int signum){
 
+    on=0;
+    close(mainFIFOfdW);
+    println("\nNão serão recebidas mais conexões\n");
+
+}
+
+
+void signada(){}
 
 
 int main(int argc,char *argv[]){
@@ -325,21 +304,20 @@ int main(int argc,char *argv[]){
     char fifoRead[64];
     char fifoWrite[64];
     ssize_t tamanhoPedido;
-
+    printf("%d\n",getpid());
+    signal(SIGTERM,signalEnd);
     signal(SIGUSR1,signalRemoveExecucao);
 
     //abrir um fifo com escrita para o pipe nunca levar EOF, isto tudo em vez do while(1) e colocar while(read>0)
     //Abrir main pipe para receber pedidos de conexão
     int mainFIFOfd = open(mainFIFO,O_RDONLY);
-    int mainFIFOfdW = open(mainFIFO,O_WRONLY);
+    mainFIFOfdW = open(mainFIFO,O_WRONLY);
 
     /*Quando uma conexão chega, o servidor lê o pedido e processa-o;
     O pedido será do tipo "pid pedido arg arg...";*/
-    while((tamanhoPedido = read(mainFIFOfd,pedido,sizeof(pedido)))>0){
+    while(((tamanhoPedido = read(mainFIFOfd,pedido,sizeof(pedido)))>0)&&on){
 
-        
-
-        //Aqui assume-se que o cliente introduziu um comando válido,
+        //Aqui assume-se que o cliente Invalid read of size 4 introduziu um comando válido,
         //ou que o client side o tenha autenticado!
         if(tamanhoPedido>0){            
 
@@ -359,7 +337,7 @@ int main(int argc,char *argv[]){
             mkfifo(fifoRead,0666);
             mkfifo(fifoWrite,0666);
 
-            //Não esquecer do memset e tal
+
             if(strcmp(pedidoArr[1],"status")==0){
                 
                 //Aqui apenas é preciso um FIFO de write
@@ -377,7 +355,7 @@ int main(int argc,char *argv[]){
 
             }
 
-            else if(strcmp(pedidoArr[1],"proc-file")==0){//falta aqui validar o path
+            else if(strcmp(pedidoArr[1],"proc-file")==0){
 
                 for(int i=4;i<pedidoSize;i++){
                     for(int j=0,k=0;j<nTransf;j++,k+=2){
@@ -405,23 +383,21 @@ int main(int argc,char *argv[]){
                 // { 0       1        2        3     4   5   6  ...}
             
                 //Cada fork aqui representa um cliente
-                if((pid_fileProc=fork())==0){                    
-
-                    signal(SIGUSR2,signada);
+                if((pid_fileProc=fork())==0){
 
                     int fdW = open(fifoWrite,O_WRONLY);
                     char resposta[messageSize];
 
                     if(!temEspaco){                       
-                        sprintf(resposta,"O servidor não tem capacidade de o atender, o seu pedido foi colocado na lista de espera...\n");
+                        sprintf(resposta,"\nO servidor não tem capacidade de o atender, o seu pedido foi colocado na lista de espera");
                         write(fdW,resposta,strlen(resposta));
                         pause();
-                        sprintf(resposta,"O seu pedido saiu da fila de espera e vai começar a ser executado\n");
+                        sprintf(resposta,"O seu pedido saiu da fila de espera e vai começar a ser executado");
                         write(fdW,resposta,strlen(resposta));
                     }
                     else{
 
-                        sprintf(resposta,"O seu pedido vai começar a ser executado\n");
+                        sprintf(resposta,"\nO seu pedido vai começar a ser executado\n");
                         write(fdW,resposta,strlen(resposta));
 
                     }
@@ -443,7 +419,7 @@ int main(int argc,char *argv[]){
                             close(fdOutput);
 
                             char command[CommandSize];
-                            sprintf(command,"%s%s",exe,pedidoArr[4]);
+                            sprintf(command,"%s%s",argv[2],pedidoArr[4]);
                             execl(command,command,NULL);
 
                             // só será usado se o exec se vergar, não esquecer de ver isto!!
@@ -471,6 +447,7 @@ int main(int argc,char *argv[]){
                         for(int i=0;i<n_op;i++){
 
                             opIndex = 4+i;
+
                             //No último comando, não é necessário criar pipe
                             if(i!=(n_op-1)){
                                 if(pipe(p[i])==-1){
@@ -494,7 +471,7 @@ int main(int argc,char *argv[]){
                                     close(p[i][1]);
 
                                     char command[CommandSize];
-                                    sprintf(command,"%s%s",exe,pedidoArr[opIndex]);
+                                    sprintf(command,"%s%s",argv[2],pedidoArr[opIndex]);
                                     execl(command,command,NULL);
 
                                     // só será usado se o exec se vergar, não esquecer de ver isto!!
@@ -514,7 +491,7 @@ int main(int argc,char *argv[]){
                             else if(i==(n_op-1)){
 
                                 if(fork()==0){
-
+                                    
                                     int fdOutput = open(pedidoArr[3],O_WRONLY | O_CREAT,0666);
 
                                     dup2(fdOutput,1);
@@ -523,7 +500,7 @@ int main(int argc,char *argv[]){
                                     close(p[i-1][0]);
 
                                     char command[CommandSize];
-                                    sprintf(command,"%s%s",exe,pedidoArr[opIndex]);
+                                    sprintf(command,"%s%s",argv[2],pedidoArr[opIndex]);
                                     execl(command,command,NULL);
 
                                     // só será usado se o exec se vergar, não esquecer de ver isto!!
@@ -542,7 +519,7 @@ int main(int argc,char *argv[]){
                             else{
 
                                 if(fork()==0){
-
+                                    
                                     close(p[i][0]);
                                     dup2(p[i-1][0],0);
                                     close(p[i-1][0]);
@@ -550,7 +527,7 @@ int main(int argc,char *argv[]){
                                     close(p[i][1]);
 
                                     char command[CommandSize];
-                                    sprintf(command,"%s%s",exe,pedidoArr[opIndex]);
+                                    sprintf(command,"%s%s",argv[2],pedidoArr[opIndex]);
                                     execl(command,command,NULL);
 
                                     // só será usado se o exec se vergar, não esquecer de ver isto!!
@@ -602,7 +579,7 @@ int main(int argc,char *argv[]){
 
             }
             else{
-                printf("Operação inválida\n");
+                println("Operação inválida\n");
             }
 
         }
@@ -614,6 +591,13 @@ int main(int argc,char *argv[]){
         }
 
     }
+
+    // Esperar que os restantes pedidos acabem
+    while(Espera||Execucao) sleep(1);
+
+
+    println("Todos os processos acabaram.");
+
 
     close(mainFIFOfdW);
     close(mainFIFOfd);
