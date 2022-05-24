@@ -2,7 +2,6 @@ SDStore-transf
 FIFOs
 sdstore
 sdstored
-*.o
 .vscode
 .idea
 *.bz2
