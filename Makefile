@@ -1,7 +1,7 @@
 all: server client
 
 install:
-	mkdir bin obj exe out tmp all
+	all mkdir bin obj out tmp
 
 server: bin/sdstored
 
